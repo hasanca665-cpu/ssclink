@@ -1,0 +1,8 @@
+aiohttp
+aiofiles
+python-telegram-bot
+pycryptodome
+pytz
+requests
+Flask
+Werkzeug
