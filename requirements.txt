@@ -6,3 +6,4 @@ pytz
 requests
 Flask
 Werkzeug
+brotli
