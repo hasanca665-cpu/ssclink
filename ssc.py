@@ -2089,7 +2089,7 @@ async def process_phone_number(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return
 
-        logger.info(f"Processing phone number for user {user_id}: {phone}")
+        logger.info(f"🔍 Processing phone number for user {user_id}: {phone}")
 
         # ✅ নম্বর ক্লিন করা
         phone_clean = re.sub(r'[^\d+]', '', phone)
@@ -2106,10 +2106,12 @@ async def process_phone_number(update: Update, context: ContextTypes.DEFAULT_TYP
 
         if not normalized_phone:
             await update.message.reply_text(
-                "❌ অবৈধ ফোন নাম্বার। দয়া করে সঠিক কান্ট্রি কোডসহ নাম্বার দিন।",
+                "❌ অবৈধ ফোন নাম্বার। দয়া করে সঠিক কান্ট্রি কোডসহ নাম্বার দিন।\n\nউদাহরণ:\n+12345678900\n1234567890\n+8801712345678",
                 reply_markup=get_main_keyboard(selected_website, user_id)
             )
             return
+
+        logger.info(f"✅ Normalized phone: {normalized_phone}")
 
         # ✅ টোকেন চেক করা
         tokens = load_tokens()
@@ -2118,62 +2120,166 @@ async def process_phone_number(update: Update, context: ContextTypes.DEFAULT_TYP
             context.user_data.pop('state', None)
             context.user_data['selected_website'] = selected_website
             await update.message.reply_text(
-                f"❌ কোনো {website} একাউন্ট লগইন করা নেই। প্রথমে লগইন করুন।",
+                f"❌ কোনো {website} একাউন্ট লগইন করা নেই। প্রথমে 'Log in Account' দিয়ে লগইন করুন।",
                 reply_markup=get_main_keyboard(selected_website, user_id)
             )
             return
 
-        # ✅ Duplicate check - একই number এর আগের process cancel করবে
+        logger.info(f"✅ Token found for {website}")
+
+        # ✅ Duplicate process check - একই number এর আগের process cancel করবে
         process_key = f"{user_id}_{normalized_phone}"
         if process_key in current_otp_processes:
-            logger.info(f"🔄 Duplicate number found, cancelling previous: {normalized_phone}")
+            logger.info(f"🔄 Duplicate number found, cancelling previous process: {normalized_phone}")
             current_otp_processes[process_key]['active'] = False
             # Wait a bit for previous process to clean up
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
+
+        # ✅ Active process count check
+        active_count = count_active_processes(user_id)
+        if active_count >= 3:
+            await update.message.reply_text(
+                f"❌ আপনি ইতিমধ্যে {active_count}টি নম্বর প্রসেস করছেন।\n\nদয়া করে আগের প্রসেস শেষ হওয়া পর্যন্ত অপেক্ষা করুন অথবা /stop কমান্ড দিয়ে বর্তমান প্রসেস বন্ধ করুন।",
+                reply_markup=get_main_keyboard(selected_website, user_id)
+            )
+            return
 
         # ✅ ফোন এনক্রিপ্ট
-        phone_encrypted = await encrypt_phone(normalized_phone)
+        try:
+            phone_encrypted = await encrypt_phone(normalized_phone)
+            logger.info(f"✅ Phone encrypted successfully")
+        except Exception as e:
+            logger.error(f"❌ Error encrypting phone: {e}")
+            await update.message.reply_text(
+                f"❌ ফোন নাম্বার এনক্রিপ্ট করতে সমস্যা হয়েছে: {str(e)}",
+                reply_markup=get_main_keyboard(selected_website, user_id)
+            )
+            return
 
         # ⏳ প্রসেসিং মেসেজ তৈরি করা
-        processing_msg = await update.message.reply_text(f"📱 Processing: {normalized_phone}\n📤 Sending verification code...")
+        processing_msg = await update.message.reply_text(
+            f"📱 **Processing Number**\n"
+            f"➖➖➖➖➖➖➖➖➖➖\n"
+            f"📞 Number: `{normalized_phone}`\n"
+            f"🌐 Website: {website}\n"
+            f"📤 Sending verification request...\n"
+            f"⏳ Please wait...",
+            parse_mode='Markdown'
+        )
 
         # ✅ কোড পাঠানো (অটো area_code সহ)
+        logger.info(f"📤 Sending code request for {normalized_phone}")
         response = await send_code(token, phone_encrypted, website_config, device_name, phone_plain=normalized_phone)
 
         # 🔎 রেসপন্স চেক
+        logger.info(f"🔍 Send code response: {json.dumps(response, indent=2)}")
+
         if response.get("code") == 1:
             await processing_msg.edit_text(
-                f"📱 Processing: {normalized_phone}\n"
-                f"✅ Verification code sent successfully!\n"
-                f"🔍 Checking for OTP..."
+                f"📱 **Processing Number**\n"
+                f"➖➖➖➖➖➖➖➖➖➖\n"
+                f"📞 Number: `{normalized_phone}`\n"
+                f"🌐 Website: {website}\n"
+                f"✅ **Verification request successful!**\n"
+                f"🔍 Checking for alphanumeric code...\n"
+                f"⏳ This may take 1-2 minutes...\n"
+                f"📝 Code format: Letters + Numbers (e.g., 9RGGL4KY)",
+                parse_mode='Markdown'
             )
             
             # Start OTP fetching in background
             asyncio.create_task(
                 fetch_otp_for_number(
-                    user_id, normalized_phone, token, website_config, device_name, update, context, processing_msg
+                    user_id, normalized_phone, token, website_config, device_name, 
+                    update, context, processing_msg
                 )
             )
                 
         elif response.get("code") == -31:
-            await processing_msg.edit_text(f"❌ {normalized_phone} - এই এরিয়া কোড সাপোর্টেড নয়")
+            await processing_msg.edit_text(
+                f"❌ **Area Code Not Supported**\n"
+                f"➖➖➖➖➖➖➖➖➖➖\n"
+                f"📞 Number: `{normalized_phone}`\n"
+                f"🌐 Website: {website}\n"
+                f"🚫 এই এরিয়া কোড বর্তমানে সাপোর্টেড নয়।\n"
+                f"💡 দয়া করে এডমিনের সাথে যোগাযোগ করুন।",
+                parse_mode='Markdown'
+            )
+            
+        elif "frequently" in response.get('msg', '').lower() or "action_frequently" in response.get('msg', ''):
+            await processing_msg.edit_text(
+                f"❌ **Too Many Requests**\n"
+                f"➖➖➖➖➖➖➖➖➖➖\n"
+                f"📞 Number: `{normalized_phone}`\n"
+                f"🌐 Website: {website}\n"
+                f"🚫 Too many verification requests.\n"
+                f"⏰ Please wait 5-10 minutes before trying again.\n"
+                f"💡 Try with a different number in the meantime.",
+                parse_mode='Markdown'
+            )
+            
+        elif response.get("code") == 0 and "already" in response.get('msg', '').lower():
+            await processing_msg.edit_text(
+                f"⚠️ **Number Already Linked**\n"
+                f"➖➖➖➖➖➖➖➖➖➖\n"
+                f"📞 Number: `{normalized_phone}`\n"
+                f"🌐 Website: {website}\n"
+                f"ℹ️ This number is already linked to an account.\n"
+                f"💡 Try with a different number.",
+                parse_mode='Markdown'
+            )
+            
         else:
-            error_msg = response.get('msg', 'অজানা ত্রুটি')
-            await processing_msg.edit_text(f"❌ {normalized_phone} - কোড পাঠাতে ব্যর্থ: {error_msg}")
+            error_msg = response.get('msg', 'Unknown error')
+            await processing_msg.edit_text(
+                f"❌ **Request Failed**\n"
+                f"➖➖➖➖➖➖➖➖➖➖\n"
+                f"📞 Number: `{normalized_phone}`\n"
+                f"🌐 Website: {website}\n"
+                f"🚫 Error: {error_msg}\n"
+                f"💡 Please try again with a different number.",
+                parse_mode='Markdown'
+            )
 
     except Exception as e:
-        logger.error(f"Error in process_phone_number: {e}")
-        await update.message.reply_text(
-            f"❌ System Error: {str(e)}\n\nPlease try again or contact support.",
-            reply_markup=get_main_keyboard(selected_website, user_id)
-        )
+        logger.error(f"❌ Error in process_phone_number: {e}", exc_info=True)
+        
+        try:
+            await update.message.reply_text(
+                f"❌ **System Error**\n"
+                f"➖➖➖➖➖➖➖➖➖➖\n"
+                f"🚫 An unexpected error occurred:\n"
+                f"`{str(e)}`\n\n"
+                f"🔧 Please try again or contact support.",
+                parse_mode='Markdown',
+                reply_markup=get_main_keyboard(selected_website, user_id)
+            )
+        except Exception as msg_error:
+            logger.error(f"❌ Error sending error message: {msg_error}")
 
+# Helper function to count active processes
+def count_active_processes(user_id):
+    """Count active OTP processes for a user"""
+    try:
+        count = 0
+        current_time = time.time()
+        
+        for key in list(current_otp_processes.keys()):
+            if key.startswith(f"{user_id}_"):
+                process = current_otp_processes[key]
+                # Consider process active if started within last 5 minutes and still marked active
+                if (process.get('active', False) and 
+                    current_time - process.get('start_time', 0) < 300):  # 5 minutes
+                    count += 1
+        return count
+    except Exception as e:
+        logger.error(f"Error counting processes: {e}")
+        return 0
 
 async def fetch_otp_for_number(user_id, phone, token, website_config, device_name, update, context, processing_msg):
-    """Background task to fetch OTP for a specific number"""
+    """Enhanced background task to fetch OTP for alphanumeric codes"""
     process_key = f"{user_id}_{phone}"
     
-    # Register this process
     current_otp_processes[process_key] = {
         'active': True,
         'phone': phone,
@@ -2183,115 +2289,185 @@ async def fetch_otp_for_number(user_id, phone, token, website_config, device_nam
     }
     
     try:
-        # Check for OTP every 2 seconds for MAX 1 MINUTE
-        max_checks = 30  # 1 minute
+        max_checks = 60  # 2 minutes
         check_interval = 2
         
         for check_count in range(1, max_checks + 1):
-            # Check if this process is still active
             if not current_otp_processes.get(process_key, {}).get('active', False):
                 logger.info(f"Process cancelled: {phone}")
-                await processing_msg.edit_text(f"🔄 {phone} - Cancelled (new request)")
+                await processing_msg.edit_text(f"🔄 {phone} - Cancelled")
                 return
             
             elapsed_seconds = check_count * check_interval
             
             try:
-                # Update the same processing message every 2 seconds
-                status_text = (
-                    f"📱 Processing: {phone}\n"
-                    f"✅ Code sent | 🔍 Checking OTP ({elapsed_seconds}s)\n"
-                    f"⏳ Please wait..."
+                # Progressive status updates
+                status_msg = f"⏳ Checking for OTP code... ({elapsed_seconds}s)"
+                if elapsed_seconds > 30:
+                    status_msg = f"⏳ Still checking... ({elapsed_seconds}s)"
+                if elapsed_seconds > 60:
+                    status_msg = f"⏳ Taking longer than usual... ({elapsed_seconds}s)"
+                
+                await processing_msg.edit_text(
+                    f"📱 {phone}\n"
+                    f"✅ Verification code sent\n"
+                    f"{status_msg}\n"
+                    f"🔍 Waiting for alphanumeric code..."
                 )
-                await processing_msg.edit_text(status_text)
                 
                 # Try to get OTP
                 otp_response = await get_code(token, phone, website_config, device_name)
                 
-                if otp_response and otp_response.get("code") == 1:
-                    otp = extract_otp_from_response(otp_response)
+                if otp_response:
+                    logger.info(f"🔍 OTP API Response: {json.dumps(otp_response, indent=2)}")
                     
-                    if otp:
-                        # OTP found!
-                        current_otp_processes[process_key]['message_sent'] = True
+                    if otp_response.get("code") == 1:
+                        otp = extract_otp_from_response(otp_response)
                         
-                        # Final update to processing message with OTP result
-                        await processing_msg.edit_text(
-                            f"🎯 **OTP Received**\n"
-                            f"📱 Number: {phone}\n"
-                            f"🔢 OTP Code: <code>{otp}</code>\n"
-                            f"⏱️ Time: {elapsed_seconds} seconds\n"
-                            f"✅ Process completed!",
-                            parse_mode='HTML'
-                        )
-                        break
-                elif otp_response and otp_response.get("code") != 1:
-                    # API error occurred
-                    error_msg = otp_response.get('msg', 'Unknown API error')
-                    await processing_msg.edit_text(
-                        f"📱 Processing: {phone}\n"
-                        f"❌ API Error: {error_msg}\n"
-                        f"💡 Please try again"
-                    )
-                    break
+                        if otp:
+                            # Check status if available
+                            data_field = otp_response.get("data", {})
+                            status = data_field.get("status") if isinstance(data_field, dict) else None
+                            
+                            current_otp_processes[process_key]['message_sent'] = True
+                            
+                            status_info = ""
+                            if status is not None:
+                                status_info = f"\n📊 Status: {'✅ Active' if status == '1' else '⚠️ Inactive'}"
+                            
+                            await processing_msg.edit_text(
+                                f"🎯 **Alphanumeric Code Received!**\n"
+                                f"📱 Number: {phone}\n"
+                                f"🔢 Code: <code>{otp}</code>{status_info}\n"
+                                f"⏱️ Time: {elapsed_seconds} seconds\n"
+                                f"✅ Process completed!",
+                                parse_mode='HTML'
+                            )
+                            break
+                        else:
+                            # OTP response is success but no OTP found
+                            await asyncio.sleep(check_interval)
+                            continue
+                    
+                    elif otp_response.get("code") == 0:
+                        # API returned success=0 but might have message
+                        msg = otp_response.get("msg", "")
+                        if "no code" in msg.lower() or "wait" in msg.lower() or "not received" in msg.lower():
+                            # Normal - no OTP received yet
+                            await asyncio.sleep(check_interval)
+                            continue
+                        else:
+                            # Other message
+                            logger.info(f"API code=0 with message: {msg}")
+                            await asyncio.sleep(check_interval)
+                            continue
+                    
+                    else:
+                        # API error
+                        error_msg = otp_response.get('msg', 'Unknown API error')
+                        logger.error(f"API error for {phone}: {error_msg}")
+                        
+                        # Don't break for temporary errors
+                        if any(word in error_msg.lower() for word in ['busy', 'wait', 'retry', 'later']):
+                            await asyncio.sleep(check_interval)
+                            continue
+                        else:
+                            await processing_msg.edit_text(
+                                f"📱 {phone}\n"
+                                f"❌ API Error: {error_msg}\n"
+                                f"💡 Please try again"
+                            )
+                            break
+                
+                else:
+                    # No response - continue waiting
+                    await asyncio.sleep(check_interval)
+                    continue
                     
             except Exception as api_error:
-                logger.error(f"API call error for {phone}: {api_error}")
-                # Continue trying despite API errors
+                logger.error(f"API call error for {phone} (attempt {check_count}): {api_error}")
+                # Continue despite temporary API errors
                 await asyncio.sleep(check_interval)
                 continue
             
             await asyncio.sleep(check_interval)
         
-        # If no OTP found after 1 minute
+        # Final timeout check
         if not current_otp_processes.get(process_key, {}).get('message_sent', False):
             await processing_msg.edit_text(
-                f"📱 Processing: {phone}\n"
-                f"❌ No OTP after 1 minute\n"
-                f"💡 Try again or use different number"
+                f"📱 {phone}\n"
+                f"❌ No OTP code received after 2 minutes\n"
+                f"🔍 Possible reasons:\n"
+                f"• WhatsApp notification not received\n" 
+                f"• Number not properly linked\n"
+                f"• Server delay in code generation\n"
+                f"💡 Try with a different number"
             )
-    
-    except asyncio.CancelledError:
-        logger.info(f"OTP fetch cancelled for {phone}")
-        await processing_msg.edit_text(f"🔄 {phone} - Process cancelled")
     
     except Exception as e:
         logger.error(f"Unexpected error in OTP fetch for {phone}: {e}")
-        try:
-            await processing_msg.edit_text(
-                f"📱 Processing: {phone}\n"
-                f"❌ System Error: {str(e)}\n"
-                f"🔧 Please try again"
-            )
-        except Exception:
-            # If message editing fails, send new message
-            await update.message.reply_text(
-                f"❌ Error for {phone}: {str(e)}"
-            )
+        await processing_msg.edit_text(
+            f"📱 {phone}\n"
+            f"❌ System Error: {str(e)}\n"
+            f"🔧 Please try again"
+        )
     
     finally:
-        # Cleanup
         if process_key in current_otp_processes:
             current_otp_processes.pop(process_key)
 
 
 def extract_otp_from_response(otp_response):
-    """Extract OTP from various response formats"""
+    """Enhanced OTP extraction for alphanumeric codes"""
     try:
+        logger.info(f"🔍 Raw OTP response: {json.dumps(otp_response, indent=2)}")
+        
         otp = None
         data_field = otp_response.get("data", {})
         
+        # Format 1: Direct code in data (alphanumeric)
         if isinstance(data_field, dict):
             otp = data_field.get("code")
-        elif isinstance(data_field, str) and data_field.isdigit() and len(data_field) == 6:
-            otp = data_field
-        else:
-            msg = otp_response.get("msg", "")
-            code_match = re.search(r'\b\d{4,6}\b', msg)
-            if code_match:
-                otp = code_match.group(0)
+            if otp and isinstance(otp, str) and len(otp) >= 4:
+                logger.info(f"✅ Found OTP in data.code: {otp}")
+                return otp
         
+        # Format 2: Check if data itself is the code
+        elif isinstance(data_field, str) and len(data_field) >= 4:
+            otp = data_field
+            logger.info(f"✅ Found OTP in data string: {otp}")
+            return otp
+        
+        # Format 3: Check msg field for alphanumeric code
+        msg = otp_response.get("msg", "")
+        if not otp:
+            # Look for alphanumeric codes in message
+            alphanumeric_patterns = [
+                r'[Cc]ode[\s:]*([A-Za-z0-9]{4,10})',
+                r'[Vv]erification[\s:]*([A-Za-z0-9]{4,10})',
+                r'[Oo][Tt][Pp][\s:]*([A-Za-z0-9]{4,10})',
+                r'[\s]([A-Za-z0-9]{6,8})[\s]',
+                r'[Cc]ode\s+is\s+([A-Za-z0-9]{4,10})'
+            ]
+            
+            for pattern in alphanumeric_patterns:
+                code_match = re.search(pattern, msg)
+                if code_match:
+                    otp = code_match.group(1)
+                    logger.info(f"✅ Found OTP in msg with pattern {pattern}: {otp}")
+                    break
+        
+        # Format 4: Check entire response for alphanumeric code
+        if not otp:
+            response_str = json.dumps(otp_response)
+            code_match = re.search(r'"code"\s*:\s*"([A-Za-z0-9]{4,10})"', response_str)
+            if code_match:
+                otp = code_match.group(1)
+                logger.info(f"✅ Found OTP in response string: {otp}")
+        
+        logger.info(f"🔍 Final extracted OTP: {otp}")
         return otp
+        
     except Exception as e:
         logger.error(f"Error extracting OTP: {e}")
         return None
