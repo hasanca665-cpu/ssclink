@@ -2170,7 +2170,7 @@ async def process_phone_number(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def fetch_otp_for_number(user_id, phone, token, website_config, device_name, update, context, processing_msg):
-    """Background task to fetch OTP - BEAUTIFUL PROGRESS BARS"""
+    """Background task to fetch OTP - WITH PROGRESS BAR"""
     process_key = f"{user_id}_{phone}"
     start_time = time.time()
     max_duration = 60
@@ -2182,43 +2182,6 @@ async def fetch_otp_for_number(user_id, phone, token, website_config, device_nam
         'message_sent': False,
         'processing_msg': processing_msg
     }
-    
-    # Progress bar styles
-    progress_styles = [
-        # Style 1: Modern Blocks
-        {
-            'filled': '█',
-            'empty': '░',
-            'width': 20
-        },
-        # Style 2: Circle Dots  
-        {
-            'filled': '●',
-            'empty': '○',
-            'width': 20
-        },
-        # Style 3: Arrows
-        {
-            'filled': '█',
-            'empty': '-',
-            'width': 15
-        },
-        # Style 4: Squares
-        {
-            'filled': '🟩',
-            'empty': '🟨',
-            'width': 10
-        },
-        # Style 5: Stars
-        {
-            'filled': '✨',
-            'empty': ' ',
-            'width': 10
-        }
-    ]
-    
-    # Select random style
-    style = random.choice(progress_styles)
     
     try:
         check_count = 0
@@ -2234,10 +2197,8 @@ async def fetch_otp_for_number(user_id, phone, token, website_config, device_nam
             remaining_seconds = max_duration - elapsed_seconds
             progress_percent = min(100, int((elapsed_seconds / max_duration) * 100))
             
-            # Create beautiful progress bar
-            filled_width = int((progress_percent / 100) * style['width'])
-            empty_width = style['width'] - filled_width
-            progress_bar = style['filled'] * filled_width + style['empty'] * empty_width
+            # Progress bar
+            progress_bar = "[" + "█" * (progress_percent // 5) + "▒" * (20 - (progress_percent // 5)) + "]"
             
             minutes = elapsed_seconds // 60
             seconds = elapsed_seconds % 60
@@ -2247,27 +2208,18 @@ async def fetch_otp_for_number(user_id, phone, token, website_config, device_nam
             rem_seconds = remaining_seconds % 60
             rem_display = f"{rem_minutes:02d}:{rem_seconds:02d}"
             
-            # Different header styles
-            headers = [
-                f"🚀 **Real-time OTP Hunter**",
-                f"🎯 **OTP Mission Control**", 
-                f"🔍 **OTP Radar Active**",
-                f"📡 **Signal Scanner Live**",
-                f"🎪 **OTP Quest Running**"
-            ]
-            
+            # REAL-TIME STATUS UPDATE
             status_text = (
-                f"{random.choice(headers)}\n\n"
-                f"📱 **Number:** `{phone}`\n"
-                f"⏰ **Time:** {time_display} | ⏳ **Left:** {rem_display}\n"
-                f"📊 **Progress:** {progress_bar} {progress_percent}%\n"
-                f"🔄 **Attempt:** #{check_count} | ⚡ **Checking...**\n"
-                f"🎯 **Status:** LIVE UPDATING EVERY SECOND"
+                f"📱 **Real-time OTP Monitoring**\n"
+                f"🔢 Number: `{phone}`\n"
+                f"⏰ Time: {time_display} | Remaining: {rem_display}\n"                
+                f"🔄 Attempt: {check_count} | 🔍 Checking...\n\n"
+                f"📊 {progress_bar} {progress_percent}%\n"
             )
             
             await processing_msg.edit_text(status_text, parse_mode='Markdown')
             
-            # INSTANT OTP CHECK EVERY SECOND
+            # 🔥 INSTANT OTP CHECK EVERY SECOND
             try:
                 otp_response = await get_code(token, phone, website_config, device_name)
                 
@@ -2281,25 +2233,17 @@ async def fetch_otp_for_number(user_id, phone, token, website_config, device_nam
                         final_seconds = final_elapsed % 60
                         final_time_display = f"{final_minutes:02d}:{final_seconds:02d}"
                         
-                        # SUCCESS MESSAGE WITH CELEBRATION
-                        success_messages = [
-                            f"🎉 **MISSION ACCOMPLISHED!** 🎉\n\n",
-                            f"✅ **OTP CAPTURED SUCCESSFULLY!** ✅\n\n", 
-                            f"🎯 **TARGET ACQUIRED!** 🎯\n\n",
-                            f"🚀 **OPERATION SUCCESSFUL!** 🚀\n\n"
-                        ]
-                        
+                        # INSTANT SUCCESS RESPONSE
                         await processing_msg.edit_text(
-                            f"{random.choice(success_messages)}"
-                            f"📱 **Number:** `{phone}`\n"
-                            f"🔐 **OTP Code:** `{otp}`\n" 
-                            f"⏱️ **Time Taken:** {final_time_display}\n"
-                            f"🔄 **Total Attempts:** #{check_count}\n"
-                            f"🏆 **SUCCESS RATE:** 100%\n\n"
-                            f"🎊 **PROCESS COMPLETED!** 🎊",
+                            f"🎉 **OTP RECEIVED SUCCESSFULLY!**\n\n"
+                            f"📱 Number: `{phone}`\n"
+                            f"🔐 OTP Code: `{otp}`\n"
+                            f"⏱️ Time: {final_time_display}\n"
+                            f"🔄 Attempt: {check_count}\n"
+                            f"✅ **PROCESS COMPLETED**",
                             parse_mode='Markdown'
                         )
-                        logger.info(f"🎯 OTP FOUND for {phone} in {final_time_display}")
+                        logger.info(f"🎯 OTP INSTANTLY FOUND for {phone} in {final_time_display}")
                         return
                         
             except Exception as api_error:
@@ -2309,35 +2253,22 @@ async def fetch_otp_for_number(user_id, phone, token, website_config, device_nam
             # Wait exactly 1 second
             await asyncio.sleep(1)
         
-        # Timeout with nice message
+        # Timeout
         final_elapsed = int(time.time() - start_time)
-        timeout_messages = [
-            f"⏰ **TIME OUT - MISSION FAILED** ⏰\n\n",
-            f"❌ **OPERATION TIMEOUT** ❌\n\n",
-            f"💔 **TARGET LOST** 💔\n\n"
-        ]
-        
         await processing_msg.edit_text(
-            f"{random.choice(timeout_messages)}"
-            f"📱 **Number:** `{phone}`\n"
-            f"⏱️ **Duration:** {final_elapsed}s\n"
-            f"🔄 **Total Attempts:** {check_count}\n"
-            f"📉 **Success Rate:** 0%\n"
-            f"💡 **Suggestion:** Try again with different number\n\n"
-            f"🔧 **Status:** TIMEOUT - NO OTP RECEIVED",
+            f"⏰ **TIME OUT**\n\n"
+            f"📱 Number: `{phone}`\n"
+            f"⏱️ Duration: {final_elapsed}s\n"
+            f"🔄 Attempts: {check_count}\n"
+            f"❌ No OTP received\n"
+            f"💡 Please try again",
             parse_mode='Markdown'
         )
     
     except Exception as e:
         logger.error(f"Error: {e}")
         try:
-            await processing_msg.edit_text(
-                f"💥 **SYSTEM MALFUNCTION**\n\n"
-                f"📱 Number: `{phone}`\n"
-                f"❌ Error: {str(e)}\n"
-                f"🔧 Please restart the process",
-                parse_mode='Markdown'
-            )
+            await processing_msg.edit_text(f"❌ System error for {phone}")
         except:
             pass
     
