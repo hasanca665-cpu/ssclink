@@ -541,7 +541,7 @@ WEBSITE_CONFIGS = {
         "signup_path": "api/user/signUp",
         "referral_field": "invite_code",
         "task_stat_url": "https://ok8job.cc/api/task_stat/wsServer",
-        "bulk_send_url": "https://ok8job.vip/api/ws_send/send"
+        "bulk_send_url": "https://ok8job.cloud/api/ws_send/send"
     },
     "W8": {
         "name": "W8",
@@ -1311,7 +1311,7 @@ async def get_phone_list(token, account_type, website_config, device_name):
 
             status_icon = "🟢" if status == 1 else "🔴"
             output.append(
-                f"{idx:2d}. {phone} {status_icon} | 📤 {this_login_sends} | 🔄 {send_type}"
+                f"{idx:2d}. {phone} {status_icon} | 📤 {this_login_sends} | 🔄 Manual"
             )
 
         output.append("\n📊 Additional Info:")
